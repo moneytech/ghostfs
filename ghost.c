@@ -1,12 +1,16 @@
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "fs.h"
+#include "lsb.h"
+#include "util.h"
 
 int main(int argc, char *argv[])
 {
 	struct ghostfs *gfs = NULL;
+	struct sampler sampler;
 	int ret;
 
 	if (argc < 2) {
@@ -14,14 +18,25 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	ret = open_sampler(&sampler, argv[1]);
+	if (ret < 0)
+		goto failed;
+
 	if (argc == 4 && argv[2][0] == 'f') {
-		ret = ghostfs_format(argv[1], atoi(argv[3]));
+		struct stegger *lsb;
+
+		ret = lsb_new(&lsb, &sampler, atoi(argv[3]));
 		if (ret < 0)
 			goto failed;
+
+		ret = ghostfs_format(lsb);
+		if (ret < 0)
+			goto failed;
+
 		return 0;
 	}
 
-	ret = ghostfs_mount(&gfs, argv[1]);
+	ret = try_mount_lsb(&gfs, &sampler);
 	if (ret < 0)
 		goto failed;
 

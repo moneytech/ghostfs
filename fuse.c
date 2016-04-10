@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "fs.h"
+#include "util.h"
 
 static struct ghostfs *get_gfs(void)
 {
@@ -176,6 +177,7 @@ int main(int argc, char *argv[])
 	struct ghostfs *gfs;
 	int ret;
 	bool debug;
+	struct sampler sampler;
 
 	if (argc < 3) {
 		fprintf(stderr, "usage: ghost-fuse file mount_point [d]\n");
@@ -184,7 +186,13 @@ int main(int argc, char *argv[])
 
 	debug = (argc > 3) && !strcmp(argv[3], "d");
 
-	ret = ghostfs_mount(&gfs, argv[1]);
+	ret = open_sampler(&sampler, argv[1]);
+	if (ret < 0) {
+		fprintf(stderr, "invalid format");
+		return 1;
+	}
+
+	ret = try_mount_lsb(&gfs, &sampler);
 	if (ret < 0) {
 		fprintf(stderr, "failed to mount: %s\n", strerror(-ret));
 		return 1;

@@ -8,8 +8,9 @@
 #include <time.h>
 
 #include "fs.h"
+#include "lsb.h"
 #include "md5.h"
-#include "steg.h"
+#include "stegger.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
@@ -59,7 +60,7 @@ static inline bool dir_entry_used(const struct dir_entry *e)
 
 struct ghostfs {
 	struct ghostfs_header hdr;
-	struct steg *steg;
+	struct stegger *stegger;
 	struct cluster **clusters;
 	struct dir_entry root_entry;
 	uid_t uid;
@@ -903,7 +904,7 @@ static int write_cluster(struct ghostfs *gfs, struct cluster *cluster, int nr)
 	const size_t c0_offset = 16 + sizeof(struct ghostfs_header);
 	int ret;
 
-	ret = steg_write(gfs->steg, cluster, CLUSTER_SIZE, c0_offset + nr*CLUSTER_SIZE, gfs->bits);
+	ret = stegger_write(gfs->stegger, cluster, CLUSTER_SIZE, c0_offset + nr*CLUSTER_SIZE);
 	if (ret < 0)
 		return ret;
 
@@ -916,7 +917,7 @@ static int read_cluster(struct ghostfs *gfs, struct cluster *cluster, int nr)
 	const size_t c0_offset = 16 + sizeof(struct ghostfs_header);
 	int ret;
 
-	ret = steg_read(gfs->steg, cluster, CLUSTER_SIZE, c0_offset + nr*CLUSTER_SIZE, gfs->bits);
+	ret = stegger_read(gfs->stegger, cluster, CLUSTER_SIZE, c0_offset + nr*CLUSTER_SIZE);
 	if (ret < 0)
 		return ret;
 
@@ -930,44 +931,29 @@ static int ghostfs_check(struct ghostfs *gfs)
 	unsigned char md5_fs[16];
 	unsigned char md5[16];
 	struct cluster root;
-	int bits;
 	int ret;
 
-	// try all bit configuration possibilities
-	for (bits = 1; bits <= 8; bits++) {
-		ret = steg_read(gfs->steg, &gfs->hdr, sizeof(struct ghostfs_header), 16, bits);
-		if (ret < 0) {
-			if (ret == -EINVAL)
-				continue;
-			return ret;
-		}
+	ret = stegger_read(gfs->stegger, md5_fs, sizeof(md5_fs), 0);
+	if (ret < 0)
+		return ret;
 
-		ret = steg_read(gfs->steg, md5_fs, sizeof(md5_fs), 0, bits);
-		if (ret < 0) {
-			if (ret == -EINVAL)
-				continue;
-			return ret;
-		}
+	ret = stegger_read(gfs->stegger, &gfs->hdr, sizeof(struct ghostfs_header), 16);
+	if (ret < 0)
+		return ret;
 
-		ret = steg_read(gfs->steg, &root, sizeof(root), 16 + sizeof(struct ghostfs_header), bits);
-		if (ret < 0) {
-			if (ret == -EINVAL)
-				continue;
-			return ret;
-		}
+	ret = stegger_read(gfs->stegger, &root, sizeof(root), 16 + sizeof(struct ghostfs_header));
+	if (ret < 0)
+		return ret;
 
-		MD5_Init(&md5_ctx);
-		MD5_Update(&md5_ctx, &gfs->hdr, sizeof(gfs->hdr));
-		MD5_Update(&md5_ctx, &root, sizeof(root));
-		MD5_Final(md5, &md5_ctx);
+	MD5_Init(&md5_ctx);
+	MD5_Update(&md5_ctx, &gfs->hdr, sizeof(gfs->hdr));
+	MD5_Update(&md5_ctx, &root, sizeof(root));
+	MD5_Final(md5, &md5_ctx);
 
-		if (memcmp(md5, md5_fs, 16) == 0) {
-			gfs->bits = bits;
-			return 0;
-		}
+	if (memcmp(md5, md5_fs, 16) == 0) {
+		return 0;
 	}
 
-	warnx("fs: incorrect checksum");
 	return -EIO;
 }
 
@@ -983,12 +969,12 @@ static int write_header(struct ghostfs *gfs, struct cluster *cluster0)
 	MD5_Final(md5, &md5_ctx);
 
 	// write md5 of header+root
-	ret = steg_write(gfs->steg, md5, sizeof(md5), 0, gfs->bits);
+	ret = stegger_write(gfs->stegger, md5, sizeof(md5), 0);
 	if (ret < 0)
 		return ret;
 
 	// write header
-	ret = steg_write(gfs->steg, &gfs->hdr, sizeof(gfs->hdr), 16, gfs->bits);
+	ret = stegger_write(gfs->stegger, &gfs->hdr, sizeof(gfs->hdr), 16);
 	if (ret < 0)
 		return ret;
 
@@ -1001,30 +987,22 @@ static int write_header(struct ghostfs *gfs, struct cluster *cluster0)
 }
 
 // create a new filesystem
-int ghostfs_format(const char *filename, int bits)
+int ghostfs_format(struct stegger *stegger)
 {
 	struct ghostfs gfs;
-	size_t avail;
 	size_t count;
 	struct cluster cluster;
 	int ret, i;
 	const int HEADER_SIZE = 16 + sizeof(struct ghostfs_header);
 
-	if (bits < 1 || bits > 8)
-		return -EINVAL;
-	gfs.bits = bits;
+	gfs.stegger = stegger;
 
-	ret = steg_open(&gfs.steg, filename);
-	if (ret < 0)
-		return ret;
-
-	avail = steg_capacity(gfs.steg) * bits / 8;
-	if (avail < HEADER_SIZE + CLUSTER_SIZE) {
-		steg_close(gfs.steg);
+	if (gfs.stegger->capacity < HEADER_SIZE + CLUSTER_SIZE) {
+		stegger_close(gfs.stegger);
 		return -ENOSPC;
 	}
 
-	count = (avail - HEADER_SIZE) / CLUSTER_SIZE;
+	count = (gfs.stegger->capacity - HEADER_SIZE) / CLUSTER_SIZE;
 	if (count > 0xFFFF) {
 		warnx("fs: %lu clusters available, using only %d", count, 0xFFFF);
 		count = 0xFFFF;
@@ -1034,7 +1012,7 @@ int ghostfs_format(const char *filename, int bits)
 
 	ret = read_cluster(&gfs, &cluster, 0);
 	if (ret < 0) {
-		steg_close(gfs.steg);
+		stegger_close(gfs.stegger);
 		return ret;
 	}
 
@@ -1047,14 +1025,14 @@ int ghostfs_format(const char *filename, int bits)
 
 	ret = write_header(&gfs, &cluster);
 	if (ret < 0) {
-		steg_close(gfs.steg);
+		stegger_close(gfs.stegger);
 		return ret;
 	}
 
 	for (i = 1; i < count; i++) {
 		ret = read_cluster(&gfs, &cluster, i);
 		if (ret < 0) {
-			steg_close(gfs.steg);
+			stegger_close(gfs.stegger);
 			return ret;
 		}
 
@@ -1062,12 +1040,12 @@ int ghostfs_format(const char *filename, int bits)
 
 		ret = write_cluster(&gfs, &cluster, i);
 		if (ret < 0) {
-			steg_close(gfs.steg);
+			stegger_close(gfs.stegger);
 			return ret;
 		}
 	}
 
-	return steg_close(gfs.steg);
+	return stegger_close(gfs.stegger);
 }
 
 static int print_dir_entries(struct ghostfs *gfs, int cluster_nr, const char *parent)
@@ -1106,7 +1084,7 @@ int ghostfs_debug(struct ghostfs *gfs)
 	return print_dir_entries(gfs, 0, "");
 }
 
-int ghostfs_mount(struct ghostfs **pgfs, const char *filename)
+int ghostfs_mount(struct ghostfs **pgfs, struct stegger *stegger)
 {
 	struct ghostfs *gfs;
 	int i, ret;
@@ -1115,13 +1093,8 @@ int ghostfs_mount(struct ghostfs **pgfs, const char *filename)
 	if (!gfs)
 		return -ENOMEM;
 
+	gfs->stegger = stegger;
 	gfs->root_entry.size = 0x80000000;
-
-	ret = steg_open(&gfs->steg, filename);
-	if (ret < 0) {
-		free(gfs);
-		return ret;
-	}
 
 	ret = ghostfs_check(gfs);
 	if (ret < 0) {
@@ -1192,7 +1165,7 @@ static int ghostfs_free(struct ghostfs *gfs)
 {
 	int ret;
 
-	ret = steg_close(gfs->steg);
+	ret = stegger_close(gfs->stegger);
 
 	if (gfs->clusters) {
 		int i;
