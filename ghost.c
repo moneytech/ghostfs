@@ -10,6 +10,7 @@
 int main(int argc, char *argv[])
 {
 	struct ghostfs *gfs = NULL;
+	struct lsb *lsb;
 	struct sampler sampler;
 	int ret;
 
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	ret = try_mount_lsb(&gfs, &sampler);
+	ret = try_mount_lsb(&gfs, &lsb, &sampler);
 	if (ret < 0)
 		goto failed;
 

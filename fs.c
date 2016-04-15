@@ -997,10 +997,8 @@ int ghostfs_format(struct stegger *stegger)
 
 	gfs.stegger = stegger;
 
-	if (gfs.stegger->capacity < HEADER_SIZE + CLUSTER_SIZE) {
-		stegger_close(gfs.stegger);
+	if (gfs.stegger->capacity < HEADER_SIZE + CLUSTER_SIZE)
 		return -ENOSPC;
-	}
 
 	count = (gfs.stegger->capacity - HEADER_SIZE) / CLUSTER_SIZE;
 	if (count > 0xFFFF) {
@@ -1011,10 +1009,8 @@ int ghostfs_format(struct stegger *stegger)
 	gfs.hdr.cluster_count = count;
 
 	ret = read_cluster(&gfs, &cluster, 0);
-	if (ret < 0) {
-		stegger_close(gfs.stegger);
+	if (ret < 0)
 		return ret;
-	}
 
 	cluster.hdr.next = 0;
 
@@ -1024,28 +1020,22 @@ int ghostfs_format(struct stegger *stegger)
 	}
 
 	ret = write_header(&gfs, &cluster);
-	if (ret < 0) {
-		stegger_close(gfs.stegger);
+	if (ret < 0)
 		return ret;
-	}
 
 	for (i = 1; i < count; i++) {
 		ret = read_cluster(&gfs, &cluster, i);
-		if (ret < 0) {
-			stegger_close(gfs.stegger);
+		if (ret < 0)
 			return ret;
-		}
 
 		cluster.hdr.used = 0;
 
 		ret = write_cluster(&gfs, &cluster, i);
-		if (ret < 0) {
-			stegger_close(gfs.stegger);
+		if (ret < 0)
 			return ret;
-		}
 	}
 
-	return stegger_close(gfs.stegger);
+	return 0;
 }
 
 static int print_dir_entries(struct ghostfs *gfs, int cluster_nr, const char *parent)
@@ -1163,10 +1153,6 @@ int ghostfs_sync(struct ghostfs *gfs)
 
 static int ghostfs_free(struct ghostfs *gfs)
 {
-	int ret;
-
-	ret = stegger_close(gfs->stegger);
-
 	if (gfs->clusters) {
 		int i;
 
@@ -1178,7 +1164,7 @@ static int ghostfs_free(struct ghostfs *gfs)
 
 	free(gfs);
 
-	return ret;
+	return 0;
 }
 
 int ghostfs_umount(struct ghostfs *gfs)

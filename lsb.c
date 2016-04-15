@@ -110,15 +110,10 @@ static int lsb_write(struct stegger *self, const void *buf, size_t size, size_t 
 	return 0;
 }
 
-static int lsb_close(struct stegger *self)
+void lsb_free(struct stegger *self)
 {
 	struct lsb *lsb = container_of(self, struct lsb, stegger);
-	int ret;
-
-	ret = sampler_close(lsb->sampler);
 	free(lsb);
-
-	return ret;
 }
 
 int lsb_new(struct stegger **stegger, struct sampler *sampler, int bits)
@@ -137,7 +132,6 @@ int lsb_new(struct stegger **stegger, struct sampler *sampler, int bits)
 	lsb->stegger.capacity = sampler->count * bits / 8;
 	lsb->stegger.read = lsb_read;
 	lsb->stegger.write = lsb_write;
-	lsb->stegger.close = lsb_close;
 
 	lsb->sampler = sampler;
 	lsb->bits = bits;

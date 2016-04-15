@@ -5,5 +5,6 @@
 #include "stegger.h"
 
 int lsb_new(struct stegger **stegger, struct sampler *sampler, int bits);
+void lsb_free(struct stegger *self);
 
 #endif

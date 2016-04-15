@@ -25,7 +25,7 @@ int open_sampler(struct sampler *sampler, const char *filename)
 	return -EIO;
 }
 
-int try_mount_lsb(struct ghostfs **pgfs, struct sampler *sampler)
+int try_mount_lsb(struct ghostfs **pgfs, struct stegger **plsb, struct sampler *sampler)
 {
 	struct stegger *lsb;
 	int i, ret;
@@ -36,8 +36,12 @@ int try_mount_lsb(struct ghostfs **pgfs, struct sampler *sampler)
 			return ret;
 
 		ret = ghostfs_mount(pgfs, lsb);
-		if (ret == 0)
+		if (ret == 0) {
+			*plsb = lsb;
 			return 0;
+		}
+
+		lsb_free(lsb);
 	}
 
 	warnx("tried to mount lsb 1..8: failed");
